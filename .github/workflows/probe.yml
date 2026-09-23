@@ -1,0 +1,22 @@
+name: Non-mutating PR probe
+run-name: probe-${{ github.event.action }}-${{ github.event.pull_request.number }}
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, closed]
+permissions: {}
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Print original event and runtime identity without credentials
+        shell: python
+        run: |
+          import os, json
+          with open(os.environ['GITHUB_EVENT_PATH']) as source:
+              event=json.load(source)
+          print('NATIVE_EVENT '+json.dumps(event,sort_keys=True))
+          print('NATIVE_CONTEXT '+json.dumps({k:os.environ.get(k) for k in (
+              'GITHUB_RUN_ID','GITHUB_RUN_ATTEMPT','GITHUB_EVENT_NAME','GITHUB_REF',
+              'GITHUB_SHA','GITHUB_HEAD_REF','GITHUB_BASE_REF','GITHUB_ACTOR',
+              'GITHUB_TRIGGERING_ACTOR','GITHUB_WORKFLOW_REF','GITHUB_WORKFLOW_SHA')}))
