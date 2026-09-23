@@ -1,0 +1,60 @@
+name: Bounded token producer
+run-name: token-${{ inputs.operation }}
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [create, synchronize, edited, labeled, closed, reopened]
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+jobs:
+  mutate-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: One API mutation using only the built-in token
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+        shell: python
+        run: |
+          import os, json, urllib.request, urllib.error, base64
+          repo = os.environ['GITHUB_REPOSITORY']
+          assert repo == 'sj26-testier/gha-e2e-onboarding-r-42469f8c427c'
+          op = os.environ['OPERATION']
+          def api(path, method='GET', data=None):
+              req = urllib.request.Request('https://api.github.com/repos/' + repo + path,
+                  data=json.dumps(data).encode() if data is not None else None, method=method,
+                  headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                           'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+              try:
+                  with urllib.request.urlopen(req) as response:
+                      result=json.load(response)
+                      print('API_RESULT '+json.dumps({'method':method,'path':path,'status':response.status,'response':result}))
+                      return result
+              except urllib.error.HTTPError as error:
+                  print('API_ERROR '+json.dumps({'method':method,'path':path,'status':error.code,'body':error.read().decode()}))
+                  raise SystemExit(1)
+          print('PRODUCER '+json.dumps({'token_source':'github.token (built-in GITHUB_TOKEN)',
+              'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],
+              'workflow_ref':os.environ['GITHUB_WORKFLOW_REF'],'workflow_sha':os.environ['GITHUB_WORKFLOW_SHA'],
+              'operation':op}))
+          if op == 'create':
+              api('/pulls','POST',{'head':'dummy','base':'main','title':'Dummy token parity PR','body':'Non-deploying native-only evidence. Do not merge.'})
+          elif op == 'synchronize':
+              old=api('/contents/dummy.txt?ref=dummy')
+              api('/contents/dummy.txt','PUT',{'branch':'dummy','sha':old['sha'],
+                  'message':'Dummy synchronize producer '+os.environ['GITHUB_RUN_ID'],
+                  'content':base64.b64encode(('Dummy update '+os.environ['GITHUB_RUN_ID']+'\n').encode()).decode()})
+          elif op == 'edited':
+              api('/pulls/1','PATCH',{'title':'Dummy edited by built-in token '+os.environ['GITHUB_RUN_ID']})
+          elif op == 'labeled':
+              api('/issues/1/labels','POST',{'labels':['token-label']})
+          elif op in ('closed','reopened'):
+              api('/pulls/1','PATCH',{'state':'closed' if op == 'closed' else 'open'})
+          else:
+              raise SystemExit('Unsupported operation')
